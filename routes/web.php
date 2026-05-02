@@ -2,7 +2,11 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MetricsController;
 use Illuminate\Support\Facades\Route;
+
+// Prometheus metrics endpoint (no auth, localhost only)
+Route::get('/metrics', [MetricsController::class, 'index']);
 
 // Guest routes (login)
 Route::middleware('guest:admin')->group(function () {
