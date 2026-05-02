@@ -51,33 +51,40 @@ class DashboardController extends Controller
         $disk = $this->queryPrometheus('(1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100');
 
         // User growth chart (last 30 days)
-        $userGrowthData = MonitorSnapshot::where('snapshot_date', '>=', now()->subDays(30)->toDateString())
+        $userGrowthRaw = MonitorSnapshot::where('snapshot_date', '>=', now()->subDays(30)->toDateString())
             ->orderBy('snapshot_date')
             ->pluck('total_users', 'snapshot_date');
+        $userGrowthLabels = $userGrowthRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $userGrowthValues = $userGrowthRaw->values()->all();
 
         // Daily trades chart (last 7 days) — from journal_entries
-        $dailyTrades = JournalEntry::selectRaw("DATE(entry_date) as date, COUNT(*) as count")
+        $dailyTradesRaw = JournalEntry::selectRaw("DATE(entry_date) as date, COUNT(*) as count")
             ->where('entry_date', '>=', now()->subDays(7)->toDateString())
             ->groupBy('date')
             ->orderBy('date')
             ->pluck('count', 'date');
+        $dailyTradesLabels = $dailyTradesRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $dailyTradesValues = $dailyTradesRaw->values()->all();
 
         return view('dashboard.index', compact(
             'totalUsers', 'activeToday', 'newUsersToday', 'totalTrades',
             'winRate', 'totalPnl', 'userGrowth', 'tradeGrowth',
             'cpu', 'ram', 'disk',
-            'userGrowthData', 'dailyTrades'
+            'userGrowthLabels', 'userGrowthValues',
+            'dailyTradesLabels', 'dailyTradesValues'
         ));
     }
 
     public function users()
     {
         // Registration chart (last 30 days)
-        $registrationData = User::selectRaw("DATE(created_at) as date, COUNT(*) as count")
+        $registrationRaw = User::selectRaw("DATE(created_at) as date, COUNT(*) as count")
             ->where('created_at', '>=', now()->subDays(30))
             ->groupBy('date')
             ->orderBy('date')
             ->pluck('count', 'date');
+        $registrationLabels = $registrationRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $registrationValues = $registrationRaw->values()->all();
 
         // Active users
         $dau = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->startOfDay()))->count();
@@ -105,7 +112,7 @@ class DashboardController extends Controller
                 return $user;
             });
 
-        return view('dashboard.users', compact('registrationData', 'dau', 'wau', 'mau', 'users', 'topTraders'));
+        return view('dashboard.users', compact('registrationLabels', 'registrationValues', 'dau', 'wau', 'mau', 'users', 'topTraders'));
     }
 
     public function portfolio()
@@ -130,7 +137,14 @@ class DashboardController extends Controller
             ->sortByDesc('growth_percent')
             ->take(10);
 
-        return view('dashboard.portfolio', compact('users', 'topGrowth'));
+        // Pre-compute chart data to avoid @json + fn() in Blade
+        $growthLabels = $topGrowth->pluck('name')->values()->all();
+        $growthValues = $topGrowth->pluck('growth_percent')->values()->all();
+        $growthColors = $topGrowth->map(function ($u) {
+            return $u->growth_percent >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)';
+        })->values()->all();
+
+        return view('dashboard.portfolio', compact('users', 'topGrowth', 'growthLabels', 'growthValues', 'growthColors'));
     }
 
     public function server()
@@ -147,7 +161,12 @@ class DashboardController extends Controller
             ->orderBy('snapshot_date')
             ->get();
 
-        return view('dashboard.server', compact('cpu', 'ram', 'disk', 'diskUsedGb', 'diskTotalGb', 'historical'));
+        // Pre-compute chart data
+        $historicalLabels = $historical->pluck('snapshot_date')->map(function ($d) { return date('d M', strtotime($d)); })->all();
+        $historicalCpu = $historical->pluck('cpu_percent')->all();
+        $historicalRam = $historical->pluck('ram_percent')->all();
+
+        return view('dashboard.server', compact('cpu', 'ram', 'disk', 'diskUsedGb', 'diskTotalGb', 'historical', 'historicalLabels', 'historicalCpu', 'historicalRam'));
     }
 
     public function logs(Request $request)
