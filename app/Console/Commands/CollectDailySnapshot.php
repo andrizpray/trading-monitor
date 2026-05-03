@@ -2,8 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\JournalEntry;
 use App\Models\MonitorSnapshot;
+use App\Models\TradeHistory;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -19,17 +19,21 @@ class CollectDailySnapshot extends Command
 
         // User metrics
         $totalUsers = User::count();
-        $activeToday = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->startOfDay()))->count();
-        $activeWeek = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->subDays(7)))->count();
-        $activeMonth = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->subDays(30)))->count();
+        $activeToday = TradeHistory::where('close_date', '>=', now()->startOfDay())
+            ->distinct('user_id')->count('user_id');
+        $activeWeek = TradeHistory::where('close_date', '>=', now()->subDays(7))
+            ->distinct('user_id')->count('user_id');
+        $activeMonth = TradeHistory::where('close_date', '>=', now()->subDays(30))
+            ->distinct('user_id')->count('user_id');
         $newUsersToday = User::where('created_at', '>=', now()->startOfDay())->count();
 
         // Trading metrics
-        $stats = JournalEntry::selectRaw("
-            COUNT(*) as total,
+        $totalEntries = TradeHistory::count();
+        $stats = TradeHistory::selectRaw("
             SUM(profit_loss) as total_pnl,
             AVG(profit_loss) as avg_pnl,
-            SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins
+            SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
+            COUNT(*) as total
         ")->first();
         $winRate = $stats->total > 0 ? round(($stats->wins / $stats->total) * 100, 2) : 0;
 
@@ -48,7 +52,7 @@ class CollectDailySnapshot extends Command
                 'active_users_week' => $activeWeek,
                 'active_users_month' => $activeMonth,
                 'new_users_today' => $newUsersToday,
-                'total_entries' => $stats->total ?? 0,
+                'total_entries' => $totalEntries,
                 'total_pnl' => $stats->total_pnl ?? 0,
                 'avg_pnl' => $stats->avg_pnl ?? 0,
                 'win_rate' => $winRate,
