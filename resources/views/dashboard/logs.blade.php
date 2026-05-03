@@ -6,7 +6,7 @@
 
     <div class="mb-4 sm:mb-6">
         <h1 class="text-lg sm:text-2xl font-bold text-slate-900">Error Logs</h1>
-        <p class="text-xs sm:text-sm text-slate-500 mt-0.5 sm:mt-1">Log error dari aplikasi Jurnal Trading</p>
+        <p class="text-xs sm:text-sm text-slate-500 mt-0.5 sm:mt-1">Log error dari semua aplikasi</p>
     </div>
 
     <!-- Filters -->
@@ -43,6 +43,13 @@
                class="px-2.5 sm:px-3 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium rounded-lg transition {{ request('level') == 'CRITICAL' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
                 🔴 Critical ({{ $criticalCount }})
             </a>
+            {{-- Source filter --}}
+            @foreach($sources as $src)
+            <a href="{{ route('dashboard.logs', array_filter(['source' => $src, 'level' => request('level'), 'search' => request('search')])) }}"
+               class="px-2.5 sm:px-3 py-1.5 sm:py-2 text-[10px] sm:text-xs font-medium rounded-lg transition {{ request('source') == $src ? 'bg-cyan-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' }}">
+                📁 {{ $src }}
+            </a>
+            @endforeach
         </div>
     </div>
 
@@ -58,6 +65,11 @@
                     {{ $log['level'] === 'CRITICAL' ? 'bg-red-100 text-red-800' : '' }}
                     {{ !in_array($log['level'], ['ERROR', 'WARNING', 'CRITICAL']) ? 'bg-slate-100 text-slate-600' : '' }}">
                     {{ $log['level'] }}
+                </span>
+                <!-- Source Badge -->
+                <span class="shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] sm:text-xs font-medium
+                    {{ ($log['source'] ?? '') === 'JTC Connect' ? 'bg-cyan-50 text-cyan-700' : 'bg-purple-50 text-purple-700' }}">
+                    {{ $log['source'] ?? '-' }}
                 </span>
                 <!-- Content -->
                 <div class="flex-1 min-w-0">

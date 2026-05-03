@@ -108,6 +108,48 @@
         </div>
     </div>
 
+    <!-- Server Info -->
+    <div class="bg-white rounded-lg sm:rounded-xl border border-slate-200 p-3 sm:p-5 mb-4 sm:mb-6">
+        <h3 class="text-xs sm:text-sm font-semibold text-slate-900 mb-2 sm:mb-3">🖥️ Server Info</h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">OS</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700 truncate">{{ $osInfo ?? 'N/A' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">PHP</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700">{{ $phpVersion ?? 'N/A' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">MySQL</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700">{{ $mysqlVersion ?? 'N/A' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">Nginx</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700">{{ $nginxVersion ?? 'N/A' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">Uptime</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700 truncate">{{ $uptime ?? 'N/A' }}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-2 sm:p-3">
+                <p class="text-[10px] sm:text-xs text-slate-400">Disk Free</p>
+                <p class="text-xs sm:text-sm font-semibold text-slate-700">{{ $diskFree ?? 'N/A' }}</p>
+            </div>
+        </div>
+        <div class="mt-2 sm:mt-3 flex flex-wrap gap-1.5 sm:gap-2">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-50 text-cyan-700 rounded text-[10px] sm:text-xs font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span> JTC Connect :8081
+            </span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[10px] sm:text-xs font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Jurnal Trading :80
+            </span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-[10px] sm:text-xs font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Monitor :8080
+            </span>
+        </div>
+    </div>
+
     <!-- Historical Chart -->
     @if($historical->count() > 0)
     <div class="bg-white rounded-lg sm:rounded-xl border border-slate-200 p-3 sm:p-5">

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\JournalEntry;
 use App\Models\MonitorSnapshot;
+use App\Models\TradeHistory;
+use App\Models\TradingAccount;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,26 +17,41 @@ class DashboardController extends Controller
     {
         // User metrics
         $totalUsers = User::count();
-        $activeToday = User::whereHas('journalEntries', function ($q) {
-            $q->where('entry_date', '>=', now()->startOfDay());
-        })->count();
+        $activeToday = TradeHistory::where('close_date', '>=', now()->startOfDay())
+            ->distinct('user_id')->count('user_id');
         $newUsersToday = User::where('created_at', '>=', now()->startOfDay())->count();
 
-        // Trading metrics
-        $totalEntries = JournalEntry::where('user_id', Auth::guard('admin')->check() ? null : null)
-            ->count();
-        $tradeStats = JournalEntry::selectRaw("
+        // Trading metrics (from trade_histories)
+        $totalTrades = TradeHistory::count();
+        $tradeStats = TradeHistory::selectRaw("
             COUNT(*) as total,
             SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
             SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) as losses,
+            SUM(CASE WHEN result = 'break_even' THEN 1 ELSE 0 END) as be,
             SUM(profit_loss) as total_pnl,
-            AVG(profit_loss) as avg_pnl
+            AVG(profit_loss) as avg_pnl,
+            SUM(lot_size) as total_lots
         ")->first();
         $winRate = $tradeStats->total > 0
-            ? round(($tradeStats->wins / $tradeStats->total) * 100, 1)
+            ? round((($tradeStats->wins ?? 0) / $tradeStats->total) * 100, 1)
             : 0;
         $totalPnl = $tradeStats->total_pnl ?? 0;
-        $totalTrades = $tradeStats->total ?? 0;
+        $totalLots = $tradeStats->total_lots ?? 0;
+
+        // Journal metrics
+        $totalJournals = JournalEntry::count();
+
+        // Trading accounts
+        $totalAccounts = TradingAccount::where('is_active', true)->count();
+        $accountsByBroker = TradingAccount::selectRaw("broker, COUNT(*) as count")
+            ->groupBy('broker')->orderByDesc('count')->get();
+
+        // Top pairs
+        $topPairs = TradeHistory::selectRaw("currency_pair, COUNT(*) as count, SUM(profit_loss) as pnl")
+            ->groupBy('currency_pair')
+            ->orderByDesc('count')
+            ->limit(10)
+            ->get();
 
         // Yesterday snapshot for growth %
         $yesterdaySnap = MonitorSnapshot::where('snapshot_date', now()->subDay()->toDateString())->first();
@@ -54,24 +71,42 @@ class DashboardController extends Controller
         $userGrowthRaw = MonitorSnapshot::where('snapshot_date', '>=', now()->subDays(30)->toDateString())
             ->orderBy('snapshot_date')
             ->pluck('total_users', 'snapshot_date');
-        $userGrowthLabels = $userGrowthRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $userGrowthLabels = $userGrowthRaw->keys()->map(fn($d) => date('d M', strtotime($d)))->values()->all();
         $userGrowthValues = $userGrowthRaw->values()->all();
 
-        // Daily trades chart (last 7 days) — from journal_entries
-        $dailyTradesRaw = JournalEntry::selectRaw("DATE(entry_date) as date, COUNT(*) as count")
-            ->where('entry_date', '>=', now()->subDays(7)->toDateString())
+        // Daily trades chart (last 7 days)
+        $dailyTradesRaw = TradeHistory::selectRaw("DATE(close_date) as date, COUNT(*) as count")
+            ->where('close_date', '>=', now()->subDays(7)->toDateString())
             ->groupBy('date')
             ->orderBy('date')
             ->pluck('count', 'date');
-        $dailyTradesLabels = $dailyTradesRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $dailyTradesLabels = $dailyTradesRaw->keys()->map(fn($d) => date('d M', strtotime($d)))->values()->all();
         $dailyTradesValues = $dailyTradesRaw->values()->all();
+
+        // Daily P&L chart (last 7 days)
+        $dailyPnlRaw = TradeHistory::selectRaw("DATE(close_date) as date, SUM(profit_loss) as pnl")
+            ->where('close_date', '>=', now()->subDays(7)->toDateString())
+            ->groupBy('date')
+            ->orderBy('date')
+            ->pluck('pnl', 'date');
+        $dailyPnlLabels = $dailyPnlRaw->keys()->map(fn($d) => date('d M', strtotime($d)))->values()->all();
+        $dailyPnlValues = $dailyPnlRaw->values()->all();
+
+        // Recent trades (last 20)
+        $recentTrades = TradeHistory::with('user', 'tradingAccount')
+            ->orderByDesc('close_date')
+            ->limit(20)
+            ->get();
 
         return view('dashboard.index', compact(
             'totalUsers', 'activeToday', 'newUsersToday', 'totalTrades',
-            'winRate', 'totalPnl', 'userGrowth', 'tradeGrowth',
+            'winRate', 'totalPnl', 'totalLots', 'totalJournals', 'totalAccounts',
+            'userGrowth', 'tradeGrowth',
             'cpu', 'ram', 'disk',
             'userGrowthLabels', 'userGrowthValues',
-            'dailyTradesLabels', 'dailyTradesValues'
+            'dailyTradesLabels', 'dailyTradesValues',
+            'dailyPnlLabels', 'dailyPnlValues',
+            'accountsByBroker', 'topPairs', 'recentTrades'
         ));
     }
 
@@ -83,68 +118,78 @@ class DashboardController extends Controller
             ->groupBy('date')
             ->orderBy('date')
             ->pluck('count', 'date');
-        $registrationLabels = $registrationRaw->keys()->map(function ($d) { return date('d M', strtotime($d)); })->values()->all();
+        $registrationLabels = $registrationRaw->keys()->map(fn($d) => date('d M', strtotime($d)))->values()->all();
         $registrationValues = $registrationRaw->values()->all();
 
-        // Active users
-        $dau = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->startOfDay()))->count();
-        $wau = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->subDays(7)))->count();
-        $mau = User::whereHas('journalEntries', fn($q) => $q->where('entry_date', '>=', now()->subDays(30)))->count();
+        // Active users (traded in period)
+        $dau = TradeHistory::where('close_date', '>=', now()->startOfDay())
+            ->distinct('user_id')->count('user_id');
+        $wau = TradeHistory::where('close_date', '>=', now()->subDays(7))
+            ->distinct('user_id')->count('user_id');
+        $mau = TradeHistory::where('close_date', '>=', now()->subDays(30))
+            ->distinct('user_id')->count('user_id');
 
-        // User list with stats
-        $users = User::withCount('journalEntries as total_trades')
-            ->withSum('journalEntries as total_pnl', 'profit_loss')
-            ->withMax('journalEntries as last_active', 'entry_date')
+        // User list with trade stats
+        $users = User::withCount('tradeHistories as total_trades')
+            ->withSum('tradeHistories as total_pnl', 'profit_loss')
+            ->withCount('tradingAccounts as account_count')
             ->orderByDesc('total_pnl')
             ->paginate(20);
 
         // Top traders
-        $topTraders = User::withCount('journalEntries as total_trades')
-            ->withSum('journalEntries as total_pnl', 'profit_loss')
+        $topTraders = User::withCount('tradeHistories as total_trades')
+            ->withSum('tradeHistories as total_pnl', 'profit_loss')
             ->having('total_trades', '>', 0)
             ->orderByDesc('total_pnl')
             ->limit(10)
             ->get()
             ->map(function ($user) {
-                $total = $user->journalEntries()->count();
-                $wins = $user->journalEntries()->where('result', 'win')->count();
+                $total = $user->tradeHistories()->count();
+                $wins = $user->tradeHistories()->where('result', 'win')->count();
                 $user->win_rate = $total > 0 ? round(($wins / $total) * 100, 1) : 0;
                 return $user;
             });
 
-        return view('dashboard.users', compact('registrationLabels', 'registrationValues', 'dau', 'wau', 'mau', 'users', 'topTraders'));
+        return view('dashboard.users', compact(
+            'registrationLabels', 'registrationValues',
+            'dau', 'wau', 'mau', 'users', 'topTraders'
+        ));
     }
 
     public function portfolio()
     {
-        $users = User::withCount('journalEntries as total_trades')
-            ->withSum('journalEntries as total_pnl', 'profit_loss')
+        $users = User::withCount('tradeHistories as total_trades')
+            ->withSum('tradeHistories as total_pnl', 'profit_loss')
+            ->withCount('tradingAccounts as account_count')
             ->having('total_trades', '>', 0)
             ->get()
             ->map(function ($user) {
-                $wins = $user->journalEntries()->where('result', 'win')->count();
-                $total = $user->journalEntries()->count();
+                $total = $user->tradeHistories()->count();
+                $wins = $user->tradeHistories()->where('result', 'win')->count();
                 $user->win_rate = $total > 0 ? round(($wins / $total) * 100, 1) : 0;
-                $user->growth_percent = ($user->default_capital > 0)
-                    ? round(($user->total_pnl / $user->default_capital) * 100, 1)
-                    : null;
+                $user->avg_pnl = $total > 0
+                    ? round($user->tradeHistories()->avg('profit_loss'), 2)
+                    : 0;
                 return $user;
             })
             ->sortByDesc('total_pnl');
 
-        // Top 10 growth
-        $topGrowth = $users->filter(fn($u) => $u->growth_percent !== null)
-            ->sortByDesc('growth_percent')
-            ->take(10);
+        // Top 10 by P&L
+        $topPnl = $users->take(10);
+        $topPnlLabels = $topPnl->pluck('name')->values()->all();
+        $topPnlValues = $topPnl->pluck('total_pnl')->values()->all();
+        $topPnlColors = $topPnl->map(fn($u) => $u->total_pnl >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)')->values()->all();
 
-        // Pre-compute chart data to avoid @json + fn() in Blade
-        $growthLabels = $topGrowth->pluck('name')->values()->all();
-        $growthValues = $topGrowth->pluck('growth_percent')->values()->all();
-        $growthColors = $topGrowth->map(function ($u) {
-            return $u->growth_percent >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)';
-        })->values()->all();
+        // Per-pair P&L breakdown
+        $pairPnl = TradeHistory::selectRaw("currency_pair, SUM(profit_loss) as pnl, COUNT(*) as trades")
+            ->groupBy('currency_pair')
+            ->orderByDesc('pnl')
+            ->limit(15)
+            ->get();
 
-        return view('dashboard.portfolio', compact('users', 'topGrowth', 'growthLabels', 'growthValues', 'growthColors'));
+        return view('dashboard.portfolio', compact(
+            'users', 'topPnl', 'topPnlLabels', 'topPnlValues', 'topPnlColors', 'pairPnl'
+        ));
     }
 
     public function server()
@@ -161,56 +206,72 @@ class DashboardController extends Controller
             ->orderBy('snapshot_date')
             ->get();
 
-        // Pre-compute chart data
-        $historicalLabels = $historical->pluck('snapshot_date')->map(function ($d) { return date('d M', strtotime($d)); })->all();
+        $historicalLabels = $historical->pluck('snapshot_date')->map(fn($d) => date('d M', strtotime($d)))->all();
         $historicalCpu = $historical->pluck('cpu_percent')->all();
         $historicalRam = $historical->pluck('ram_percent')->all();
 
-        return view('dashboard.server', compact('cpu', 'ram', 'disk', 'diskUsedGb', 'diskTotalGb', 'historical', 'historicalLabels', 'historicalCpu', 'historicalRam'));
+        // Quick server info
+        $phpVersion = PHP_VERSION;
+        $mysqlVersion = $this->getMysqlVersion();
+        $nginxVersion = $this->getNginxVersion();
+        $osInfo = php_uname('s') . ' ' . php_uname('r');
+        $uptime = $this->getUptime();
+        $diskFree = $this->getDiskFree();
+
+        return view('dashboard.server', compact(
+            'cpu', 'ram', 'disk', 'diskUsedGb', 'diskTotalGb',
+            'historical', 'historicalLabels', 'historicalCpu', 'historicalRam',
+            'phpVersion', 'mysqlVersion', 'nginxVersion', 'osInfo', 'uptime', 'diskFree'
+        ));
     }
 
     public function logs(Request $request)
     {
-        $logPath = base_path('../jurnal-trading/storage/logs/laravel.log');
-        $logs = [];
-        $filtered = [];
+        // Monitor both jurnal-trading and journal-trading-connect logs
+        $logPaths = [
+            '/home/ubuntu/jurnal-trading/storage/logs/laravel.log' => 'Jurnal Trading',
+            '/home/ubuntu/journal-trading-connect/storage/logs/laravel.log' => 'JTC Connect',
+        ];
 
-        if (file_exists($logPath)) {
-            // Read last 5000 lines
-            $lines = array_slice(file($logPath), -5000);
-            $entries = [];
+        $allEntries = [];
+        $search = $request->get('search', '');
+        $level = $request->get('level', '');
+        $source = $request->get('source', '');
+
+        foreach ($logPaths as $logPath => $sourceName) {
+            if ($source && $source !== $sourceName) continue;
+            if (!file_exists($logPath)) continue;
+
+            $lines = array_slice(file($logPath), -3000);
             $current = null;
 
             foreach ($lines as $line) {
-                // Match log header: [2026-05-02 11:13:27] local.ERROR:
                 if (preg_match('/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (\w+)\.(\w+):/', $line, $m)) {
                     if ($current) {
-                        $entries[] = $current;
+                        $allEntries[] = $current;
                     }
                     $current = [
                         'date' => $m[1],
                         'level' => strtoupper($m[3]),
                         'message' => trim(str_replace($m[0], '', $line)),
                         'stack' => '',
+                        'source' => $sourceName,
                     ];
                 } elseif ($current) {
                     $current['stack'] .= $line;
                 }
             }
             if ($current) {
-                $entries[] = $current;
-            }
-
-            // Filter
-            $search = $request->get('search', '');
-            $level = $request->get('level', '');
-
-            foreach ($entries as $entry) {
-                if ($level && $entry['level'] !== strtoupper($level)) continue;
-                if ($search && stripos($entry['message'] . $entry['stack'], $search) === false) continue;
-                $filtered[] = $entry;
+                $allEntries[] = $current;
             }
         }
+
+        // Filter
+        $filtered = collect($allEntries)->filter(function ($entry) use ($level, $search) {
+            if ($level && $entry['level'] !== strtoupper($level)) return false;
+            if ($search && stripos($entry['message'] . $entry['stack'], $search) === false) return false;
+            return true;
+        })->sortByDesc('date')->values()->all();
 
         // Paginate
         $perPage = 20;
@@ -218,12 +279,16 @@ class DashboardController extends Controller
         $total = count($filtered);
         $logs = array_slice($filtered, ($page - 1) * $perPage, $perPage);
 
-        // Count by level
         $errorCount = collect($filtered)->where('level', 'ERROR')->count();
         $warningCount = collect($filtered)->where('level', 'WARNING')->count();
         $criticalCount = collect($filtered)->where('level', 'CRITICAL')->count();
 
-        return view('dashboard.logs', compact('logs', 'total', 'perPage', 'page', 'errorCount', 'warningCount', 'criticalCount'));
+        $sources = array_keys($logPaths);
+
+        return view('dashboard.logs', compact(
+            'logs', 'total', 'perPage', 'page',
+            'errorCount', 'warningCount', 'criticalCount', 'sources'
+        ));
     }
 
     private function queryPrometheus(string $query): float
@@ -237,8 +302,50 @@ class DashboardController extends Controller
                 return round((float) $data['data']['result'][0]['value'][1], 1);
             }
         } catch (\Throwable $e) {
-            // Silent fail — Prometheus might not have data yet
+            // Prometheus might not be running
         }
         return 0;
+    }
+
+    private function getMysqlVersion(): string
+    {
+        try {
+            $result = shell_exec("mysql -V 2>/dev/null");
+            if ($result && preg_match('/Ver\s+([\d.]+)/', $result, $m)) {
+                return $m[1];
+            }
+        } catch (\Throwable $e) {}
+        return 'N/A';
+    }
+
+    private function getNginxVersion(): string
+    {
+        try {
+            $result = shell_exec("nginx -v 2>&1");
+            if ($result && preg_match('/nginx\/([\d.]+)/', $result, $m)) {
+                return $m[1];
+            }
+        } catch (\Throwable $e) {}
+        return 'N/A';
+    }
+
+    private function getUptime(): string
+    {
+        try {
+            $uptime = shell_exec("uptime -p 2>/dev/null");
+            return $uptime ? trim($uptime) : 'N/A';
+        } catch (\Throwable $e) {}
+        return 'N/A';
+    }
+
+    private function getDiskFree(): string
+    {
+        try {
+            $df = shell_exec("df -h / 2>/dev/null");
+            if ($df && preg_match('/\d+\%\s*$/', $df, $m)) {
+                return $m[0];
+            }
+        } catch (\Throwable $e) {}
+        return 'N/A';
     }
 }

@@ -88,6 +88,7 @@
                         <th class="pb-2 sm:pb-3 pr-3 sm:pr-4">Gabung</th>
                         <th class="pb-2 sm:pb-3 pr-3 sm:pr-4 text-right">Trades</th>
                         <th class="pb-2 sm:pb-3 pr-3 sm:pr-4 text-right">P&L</th>
+                        <th class="pb-2 sm:pb-3 text-right">Accounts</th>
                         <th class="pb-2 sm:pb-3 text-right">Aktif</th>
                     </tr>
                 </thead>
@@ -104,9 +105,10 @@
                         <td class="py-2 sm:py-3 text-right text-slate-500 text-[10px] sm:text-xs whitespace-nowrap">
                             {{ $user->last_active ? \Carbon\Carbon::parse($user->last_active)->diffForHumans() : '-' }}
                         </td>
+                        <td class="py-2 sm:py-3 pr-3 sm:pr-4 text-right text-slate-500 text-[10px] sm:text-xs">{{ $user->account_count ?? 0 }}</td>
                     </tr>
                     @empty
-                    <tr><td colspan="6" class="py-6 sm:py-8 text-center text-slate-400 text-xs sm:text-sm">Belum ada user</td></tr>
+                    <tr><td colspan="7" class="py-6 sm:py-8 text-center text-slate-400 text-xs sm:text-sm">Belum ada user</td></tr>
                     @endforelse
                 </tbody>
             </table>
