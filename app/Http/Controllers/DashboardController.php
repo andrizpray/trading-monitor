@@ -91,6 +91,7 @@ class DashboardController extends Controller
             ->pluck('pnl', 'date');
         $dailyPnlLabels = $dailyPnlRaw->keys()->map(fn($d) => date('d M', strtotime($d)))->values()->all();
         $dailyPnlValues = $dailyPnlRaw->values()->all();
+        $dailyPnlColors = array_map(fn($v) => $v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)', $dailyPnlValues);
 
         // Recent trades (last 20)
         $recentTrades = TradeHistory::with('user', 'tradingAccount')
@@ -105,7 +106,7 @@ class DashboardController extends Controller
             'cpu', 'ram', 'disk',
             'userGrowthLabels', 'userGrowthValues',
             'dailyTradesLabels', 'dailyTradesValues',
-            'dailyPnlLabels', 'dailyPnlValues',
+            'dailyPnlLabels', 'dailyPnlValues', 'dailyPnlColors',
             'accountsByBroker', 'topPairs', 'recentTrades'
         ));
     }

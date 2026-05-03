@@ -306,7 +306,6 @@ document.addEventListener('DOMContentLoaded', function () {
     @endif
 
     @if(count($dailyPnlLabels) > 0)
-    const pnlColors = @json(array_map(function($v) { return $v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'; }, $dailyPnlValues));
     new Chart(document.getElementById('dailyPnlChart'), {
         type: 'bar',
         data: {
@@ -314,7 +313,7 @@ document.addEventListener('DOMContentLoaded', function () {
             datasets: [{
                 label: 'P&L',
                 data: @json($dailyPnlValues),
-                backgroundColor: pnlColors,
+                backgroundColor: @json($dailyPnlColors),
                 borderRadius: 6, borderSkipped: false,
             }]
         },
