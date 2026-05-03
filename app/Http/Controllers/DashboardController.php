@@ -343,8 +343,8 @@ class DashboardController extends Controller
     {
         try {
             $df = shell_exec("df -h / 2>/dev/null");
-            if ($df && preg_match('/\d+\%\s*$/', $df, $m)) {
-                return $m[0];
+            if ($df && preg_match('/(\d+(?:\.\d+)?[A-Z]?)\s+(\d+(?:\.\d+)?[A-Z]?)\s+(\d+(?:\.\d+)?[A-Z]?)\s+(\d+)%/', $df, $m)) {
+                return $m[3] . ' free of ' . $m[1];
             }
         } catch (\Throwable $e) {}
         return 'N/A';
